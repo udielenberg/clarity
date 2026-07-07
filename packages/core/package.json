@@ -1,8 +1,28 @@
 {
   "name": "clarity-mind",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Headless, framework-agnostic mind-mapping engine: data model, tidy-tree layout, undo/redo, Markdown/JSON I/O.",
+  "keywords": [
+    "mind-map",
+    "mindmap",
+    "brainstorming",
+    "layout",
+    "tidy-tree",
+    "tree",
+    "diagram",
+    "headless"
+  ],
   "license": "MIT",
+  "author": "udielenberg <udielenberg@users.noreply.github.com>",
+  "homepage": "https://github.com/udielenberg/clarity#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/udielenberg/clarity.git",
+    "directory": "packages/core"
+  },
+  "bugs": {
+    "url": "https://github.com/udielenberg/clarity/issues"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -19,14 +39,7 @@
   "sideEffects": false,
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "dev": "tsc -p tsconfig.build.json --watch"
-  },
-  "keywords": [
-    "mind-map",
-    "mindmap",
-    "brainstorming",
-    "layout",
-    "tree",
-    "headless"
-  ]
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "prepublishOnly": "npm run build"
+  }
 }

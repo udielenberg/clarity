@@ -1,8 +1,26 @@
 {
   "name": "@clarity-mind/react",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "React binding for clarity-mind: an interactive, keyboard-first mind-map component.",
+  "keywords": [
+    "mind-map",
+    "mindmap",
+    "react",
+    "react-component",
+    "diagram",
+    "brainstorming"
+  ],
   "license": "MIT",
+  "author": "udielenberg <udielenberg@users.noreply.github.com>",
+  "homepage": "https://github.com/udielenberg/clarity#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/udielenberg/clarity.git",
+    "directory": "packages/react"
+  },
+  "bugs": {
+    "url": "https://github.com/udielenberg/clarity/issues"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -13,18 +31,23 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md"
   ],
   "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json"
+    "build": "tsc -p tsconfig.build.json",
+    "prepublishOnly": "npm run build"
   },
   "peerDependencies": {
     "react": ">=18",
     "react-dom": ">=18"
   },
   "dependencies": {
-    "clarity-mind": "*"
+    "clarity-mind": "^0.1.0"
   },
   "devDependencies": {
     "@types/react": "^18.3.12",

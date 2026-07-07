@@ -4,6 +4,15 @@
   "version": "0.0.0",
   "description": "clarity — a better-UX, open-source mind-mapping library for the web",
   "license": "MIT",
+  "author": "udielenberg <udielenberg@users.noreply.github.com>",
+  "homepage": "https://github.com/udielenberg/clarity#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/udielenberg/clarity.git"
+  },
+  "bugs": {
+    "url": "https://github.com/udielenberg/clarity/issues"
+  },
   "type": "module",
   "workspaces": [
     "packages/core",

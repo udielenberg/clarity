@@ -10,6 +10,9 @@
  * (add · rename · recolor · delete) · drag a node onto another to re-parent ·
  * drag the background to pan · wheel to zoom · on-canvas buttons for zoom.
  *
+ * Touch: tap selects · double-tap edits · long-press opens the action menu ·
+ * drag a node onto another to re-parent · drag the background to pan.
+ *
  * Keyboard (node selected, not editing): Tab=child · Enter=sibling · F2/type=edit
  * · Delete=remove · ↑↓←→=move selection · Space=collapse · ⌘/Ctrl+Z=undo (+Shift/⌘Y=redo).
  */
@@ -69,6 +72,9 @@ const isHex6 = (c: string): boolean => /^#[0-9a-f]{6}$/i.test(c);
 const clamp = (v: number, lo: number, hi: number) =>
   Math.max(lo, Math.min(hi, v));
 const DRAG_THRESHOLD = 5;
+// Touch gestures: hold this long to open the menu; two taps within this window edit.
+const LONG_PRESS_MS = 500;
+const DOUBLE_TAP_MS = 300;
 
 interface View {
   x: number;
@@ -292,6 +298,20 @@ export function MindMap({ store, className, style }: MindMapProps) {
     moved: boolean;
     targetId: string | null;
   } | null>(null);
+  // Touch-only gesture state: a pending long-press (with its start point) and the
+  // previous tap (for double-tap detection).
+  const longPressRef = useRef<{
+    timer: ReturnType<typeof setTimeout>;
+    x: number;
+    y: number;
+  } | null>(null);
+  const lastTapRef = useRef<{ id: string; t: number } | null>(null);
+  const clearLongPress = useCallback(() => {
+    if (longPressRef.current) {
+      clearTimeout(longPressRef.current.timer);
+      longPressRef.current = null;
+    }
+  }, []);
 
   const onBackgroundPointerDown = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -306,7 +326,11 @@ export function MindMap({ store, className, style }: MindMapProps) {
         ox: view.x,
         oy: view.y,
       };
-      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      try {
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      } catch {
+        // Best-effort — see startNodeDrag.
+      }
     },
     [view, map],
   );
@@ -321,6 +345,38 @@ export function MindMap({ store, className, style }: MindMapProps) {
       setSelected(id);
       setMenu(null);
       containerRef.current?.focus();
+
+      // Touch/pen have no right-click and no reliable double-click (the pointer
+      // capture below eats the follow-up dblclick). Recognise the gestures here:
+      // double-tap → edit, long-press → menu. Mouse keeps dblclick + contextmenu.
+      if (e.pointerType !== "mouse") {
+        const now = Date.now();
+        const last = lastTapRef.current;
+        if (last && last.id === id && now - last.t < DOUBLE_TAP_MS) {
+          lastTapRef.current = null;
+          clearLongPress();
+          startEdit(id);
+          return;
+        }
+        lastTapRef.current = { id, t: now };
+
+        const x = e.clientX;
+        const y = e.clientY;
+        clearLongPress();
+        longPressRef.current = {
+          x,
+          y,
+          timer: setTimeout(() => {
+            longPressRef.current = null;
+            const rect = containerRef.current?.getBoundingClientRect();
+            dragRef.current = null; // it's a hold, not a drag — don't move on release
+            setDrag(null);
+            setSelected(id);
+            setMenu({ id, x: x - (rect?.left ?? 0), y: y - (rect?.top ?? 0) });
+          }, LONG_PRESS_MS),
+        };
+      }
+
       if (id === map.root.id) return; // root can't be moved
       dragRef.current = {
         id,
@@ -330,13 +386,24 @@ export function MindMap({ store, className, style }: MindMapProps) {
         moved: false,
         targetId: null,
       };
-      containerRef.current?.setPointerCapture(e.pointerId);
+      try {
+        containerRef.current?.setPointerCapture(e.pointerId);
+      } catch {
+        // Best-effort: the pointer may already be gone (or synthetic in tests).
+      }
     },
-    [map],
+    [map, startEdit, clearLongPress],
   );
 
   const onPointerMove = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
+      // Real movement means it's a drag/pan, not a hold — drop any pending menu.
+      const lp = longPressRef.current;
+      if (
+        lp &&
+        Math.hypot(e.clientX - lp.x, e.clientY - lp.y) >= DRAG_THRESHOLD
+      )
+        clearLongPress();
       const d = dragRef.current;
       if (d) {
         const dx = e.clientX - d.startX;
@@ -361,10 +428,11 @@ export function MindMap({ store, className, style }: MindMapProps) {
         y: p.oy + (e.clientY - p.startY),
       }));
     },
-    [map],
+    [map, clearLongPress],
   );
 
   const endPointer = useCallback(() => {
+    clearLongPress();
     const d = dragRef.current;
     if (d) {
       if (d.moved && d.targetId) store.move(d.id, d.targetId);
@@ -372,7 +440,7 @@ export function MindMap({ store, className, style }: MindMapProps) {
       setDrag(null);
     }
     panRef.current = null;
-  }, [store]);
+  }, [store, clearLongPress]);
 
   const onWheel = useCallback((e: ReactWheelEvent<HTMLDivElement>) => {
     const el = containerRef.current;

@@ -1,6 +1,6 @@
 {
   "name": "@clarity-mind/react",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "React binding for clarity-mind: an interactive, keyboard-first mind-map component.",
   "keywords": [
     "mind-map",
@@ -47,7 +47,7 @@
     "react-dom": ">=18"
   },
   "dependencies": {
-    "clarity-mind": "^0.1.0"
+    "clarity-mind": "^0.1.1"
   },
   "devDependencies": {
     "@types/react": "^18.3.12",

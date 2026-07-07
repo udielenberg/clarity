@@ -1,6 +1,6 @@
 {
   "name": "clarity-mind",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Headless, framework-agnostic mind-mapping engine: data model, tidy-tree layout, undo/redo, Markdown/JSON I/O.",
   "keywords": [
     "mind-map",

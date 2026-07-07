@@ -1,19 +1,17 @@
 /**
- * <MindMap /> — an interactive, keyboard-first mind-map view.
+ * <MindMap /> — an interactive mind-map view, operable by mouse OR keyboard.
  *
  * Rendering: topic nodes are real DOM elements (crisp text, inline editing,
  * accessibility); connectors are SVG. Nodes are positioned with a CSS transform
- * that transitions, so the map *glides* when the layout changes instead of
- * teleporting. Pan by dragging the background, zoom with the wheel.
+ * that transitions, so the map *glides* when the layout changes.
  *
- * Keyboard model (when a node is selected and you're not editing):
- *   Tab           add a child and edit it
- *   Enter         add a sibling and edit it
- *   F2 / typing   edit the selected node
- *   Delete/Backspace   remove the selected node
- *   ↑ ↓ ← →       move selection (up/down siblings, left parent, right child)
- *   Space         toggle collapse
- *   ⌘/Ctrl+Z      undo   ·   ⌘/Ctrl+Shift+Z or ⌘/Ctrl+Y   redo
+ * Mouse: click selects · double-click edits · hover shows a "+" (add child) and,
+ * for parents, a collapse toggle · right-click opens a full action menu · drag a
+ * node onto another to re-parent · drag the background to pan · wheel to zoom ·
+ * on-canvas buttons for zoom in/out/fit.
+ *
+ * Keyboard (node selected, not editing): Tab=child · Enter=sibling · F2/type=edit
+ * · Delete=remove · ↑↓←→=move selection · Space=collapse · ⌘/Ctrl+Z=undo (+Shift/⌘Y=redo).
  */
 import {
   useCallback,
@@ -30,6 +28,7 @@ import {
 import {
   findNode,
   findParent,
+  isAncestor,
   layout,
   type Box,
   type MindMapStore,
@@ -38,6 +37,7 @@ import {
 } from "clarity-mind";
 import { useMindMap } from "./useMindMap.js";
 import { navigate, type Direction } from "./navigation.js";
+import { ContextMenu, type MenuItem } from "./ContextMenu.js";
 
 export interface MindMapProps {
   store: MindMapStore;
@@ -65,11 +65,19 @@ const colorFor = (b: Box): string =>
 
 const clamp = (v: number, lo: number, hi: number) =>
   Math.max(lo, Math.min(hi, v));
+const DRAG_THRESHOLD = 5;
 
 interface View {
   x: number;
   y: number;
   zoom: number;
+}
+
+interface DragState {
+  id: string;
+  dx: number;
+  dy: number;
+  targetId: string | null;
 }
 
 /** SVG path for a curved connector between two boxes. */
@@ -90,10 +98,13 @@ export function MindMap({ store, className, style }: MindMapProps) {
   const [selected, setSelected] = useState<string>(map.root.id);
   const [editing, setEditing] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
+  const [hovered, setHovered] = useState<string | null>(null);
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(
+    null,
+  );
+  const [drag, setDrag] = useState<DragState | null>(null);
   const [view, setView] = useState<View>({ x: 0, y: 0, zoom: 1 });
   const centeredRef = useRef(false);
-  // Mirror `editing` synchronously so the keydown guard is correct even before
-  // React flushes state between rapid keystrokes.
   const editingRef = useRef<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -107,23 +118,33 @@ export function MindMap({ store, className, style }: MindMapProps) {
     if (!findNode(map.root, selected)) setSelected(map.root.id);
   }, [map, selected]);
 
-  // Center the map in the viewport once, on first layout.
-  useLayoutEffect(() => {
-    if (centeredRef.current) return;
+  const fitView = useCallback(() => {
     const el = containerRef.current;
     if (!el) return;
-    const cx = bounds.x + bounds.width / 2;
-    const cy = bounds.y + bounds.height / 2;
+    const pad = 96;
+    const zoom = clamp(
+      Math.min(
+        (el.clientWidth - pad) / Math.max(1, bounds.width),
+        (el.clientHeight - pad) / Math.max(1, bounds.height),
+      ),
+      0.3,
+      1.5,
+    );
     setView({
-      x: el.clientWidth / 2 - cx,
-      y: el.clientHeight / 2 - cy,
-      zoom: 1,
+      zoom,
+      x: el.clientWidth / 2 - (bounds.x + bounds.width / 2) * zoom,
+      y: el.clientHeight / 2 - (bounds.y + bounds.height / 2) * zoom,
     });
-    centeredRef.current = true;
   }, [bounds]);
 
-  // Focus (and select) the edit input as soon as it appears — synchronously,
-  // before the browser processes the next keystroke.
+  // Center once, on first layout.
+  useLayoutEffect(() => {
+    if (centeredRef.current || !containerRef.current) return;
+    fitView();
+    centeredRef.current = true;
+  }, [fitView]);
+
+  // Focus the edit input as soon as it appears.
   useLayoutEffect(() => {
     if (editing && inputRef.current) {
       inputRef.current.focus();
@@ -133,10 +154,6 @@ export function MindMap({ store, className, style }: MindMapProps) {
 
   const startEdit = useCallback(
     (id: string, initial?: string) => {
-      // When `initial` is given (e.g. a just-added node) we must NOT require the
-      // node to exist in the current `map` closure — that snapshot is stale
-      // immediately after an add, so the lookup would wrongly bail and the
-      // editor would never open. Only look up existing text when needed.
       let text = initial;
       if (text === undefined) {
         const n = findNode(map.root, id);
@@ -163,6 +180,7 @@ export function MindMap({ store, className, style }: MindMapProps) {
 
   const addChild = useCallback(
     (parentId: string) => {
+      store.toggleCollapse(parentId, false);
       const id = store.addChild(parentId, "");
       startEdit(id, "");
     },
@@ -181,18 +199,21 @@ export function MindMap({ store, className, style }: MindMapProps) {
     [store, map, startEdit, addChild],
   );
 
-  const removeSelected = useCallback(() => {
-    if (selected === map.root.id) return;
-    const parent = findParent(map.root, selected);
-    store.remove(selected);
-    setSelected(parent?.id ?? map.root.id);
-  }, [selected, map, store]);
+  const removeNodeById = useCallback(
+    (id: string) => {
+      if (id === map.root.id) return;
+      const parent = findParent(map.root, id);
+      store.remove(id);
+      setSelected(parent?.id ?? map.root.id);
+    },
+    [map, store],
+  );
 
+  // --- Keyboard ------------------------------------------------------------
   const onKeyDown = useCallback(
     (e: ReactKeyboardEvent<HTMLDivElement>) => {
-      if (editingRef.current) return; // the editing input handles its own keys
+      if (editingRef.current) return;
       const meta = e.metaKey || e.ctrlKey;
-
       if (meta && e.key.toLowerCase() === "z") {
         e.preventDefault();
         if (e.shiftKey) store.redo();
@@ -218,7 +239,7 @@ export function MindMap({ store, className, style }: MindMapProps) {
         case "Delete":
         case "Backspace":
           e.preventDefault();
-          removeSelected();
+          removeNodeById(selected);
           return;
         case "F2":
           e.preventDefault();
@@ -238,39 +259,37 @@ export function MindMap({ store, className, style }: MindMapProps) {
           return;
         }
         default:
-          // A printable character starts editing, replacing the text.
           if (e.key.length === 1) {
             e.preventDefault();
             startEdit(selected, e.key);
           }
       }
     },
-    [
-      editing,
-      selected,
-      map,
-      store,
-      addChild,
-      addSibling,
-      removeSelected,
-      startEdit,
-    ],
+    [selected, map, store, addChild, addSibling, removeNodeById, startEdit],
   );
 
-  // --- Pan & zoom ---------------------------------------------------------
+  // --- Pan, zoom & node-drag ----------------------------------------------
   const panRef = useRef<{
     startX: number;
     startY: number;
     ox: number;
     oy: number;
   } | null>(null);
+  const dragRef = useRef<{
+    id: string;
+    startX: number;
+    startY: number;
+    pointerId: number;
+    moved: boolean;
+    targetId: string | null;
+  } | null>(null);
 
-  const onPointerDown = useCallback(
+  const onBackgroundPointerDown = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
-      // Only pan when the background (not a node) is grabbed.
-      if ((e.target as HTMLElement).closest("[data-node]")) return;
+      if ((e.target as HTMLElement).closest("[data-node]")) return; // node handles its own
       containerRef.current?.focus();
       setSelected(map.root.id);
+      setMenu(null);
       panRef.current = {
         startX: e.clientX,
         startY: e.clientY,
@@ -282,19 +301,64 @@ export function MindMap({ store, className, style }: MindMapProps) {
     [view, map],
   );
 
-  const onPointerMove = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
-    const p = panRef.current;
-    if (!p) return;
-    setView((v) => ({
-      ...v,
-      x: p.ox + (e.clientX - p.startX),
-      y: p.oy + (e.clientY - p.startY),
-    }));
-  }, []);
+  const startNodeDrag = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>, id: string) => {
+      e.stopPropagation();
+      setSelected(id);
+      setMenu(null);
+      containerRef.current?.focus();
+      if (id === map.root.id) return; // root can't be moved
+      dragRef.current = {
+        id,
+        startX: e.clientX,
+        startY: e.clientY,
+        pointerId: e.pointerId,
+        moved: false,
+        targetId: null,
+      };
+      containerRef.current?.setPointerCapture(e.pointerId);
+    },
+    [map],
+  );
 
-  const endPan = useCallback(() => {
+  const onPointerMove = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>) => {
+      const d = dragRef.current;
+      if (d) {
+        const dx = e.clientX - d.startX;
+        const dy = e.clientY - d.startY;
+        if (!d.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+        d.moved = true;
+        const under = document
+          .elementFromPoint(e.clientX, e.clientY)
+          ?.closest("[data-node]");
+        let tid = under?.getAttribute("data-node") ?? null;
+        if (tid && (tid === d.id || isAncestor(map.root, d.id, tid)))
+          tid = null;
+        d.targetId = tid;
+        setDrag({ id: d.id, dx, dy, targetId: tid });
+        return;
+      }
+      const p = panRef.current;
+      if (!p) return;
+      setView((v) => ({
+        ...v,
+        x: p.ox + (e.clientX - p.startX),
+        y: p.oy + (e.clientY - p.startY),
+      }));
+    },
+    [map],
+  );
+
+  const endPointer = useCallback(() => {
+    const d = dragRef.current;
+    if (d) {
+      if (d.moved && d.targetId) store.move(d.id, d.targetId);
+      dragRef.current = null;
+      setDrag(null);
+    }
     panRef.current = null;
-  }, []);
+  }, [store]);
 
   const onWheel = useCallback((e: ReactWheelEvent<HTMLDivElement>) => {
     const el = containerRef.current;
@@ -310,6 +374,66 @@ export function MindMap({ store, className, style }: MindMapProps) {
     });
   }, []);
 
+  const zoomBy = useCallback((factor: number) => {
+    const el = containerRef.current;
+    if (!el) return;
+    const cx = el.clientWidth / 2;
+    const cy = el.clientHeight / 2;
+    setView((v) => {
+      const zoom = clamp(v.zoom * factor, 0.3, 2.5);
+      const k = zoom / v.zoom;
+      return { zoom, x: cx - (cx - v.x) * k, y: cy - (cy - v.y) * k };
+    });
+  }, []);
+
+  // --- Context menu items --------------------------------------------------
+  const menuItems = useCallback(
+    (id: string): MenuItem[] => {
+      const n = findNode(map.root, id);
+      const isRoot = id === map.root.id;
+      const hasKids = !!n && n.children.length > 0;
+      return [
+        { label: "Add child", icon: "+", onClick: () => addChild(id) },
+        {
+          label: "Add sibling",
+          icon: "↵",
+          onClick: () => addSibling(id),
+          disabled: isRoot,
+        },
+        { label: "Rename", icon: "✎", onClick: () => startEdit(id) },
+        {
+          label: n?.collapsed ? "Expand" : "Collapse",
+          icon: n?.collapsed ? "▸" : "▾",
+          onClick: () => store.toggleCollapse(id),
+          disabled: !hasKids,
+        },
+        {
+          label: "Delete",
+          icon: "🗑",
+          onClick: () => removeNodeById(id),
+          danger: true,
+          disabled: isRoot,
+        },
+      ];
+    },
+    [map, addChild, addSibling, startEdit, store, removeNodeById],
+  );
+
+  const ctrlBtn: CSSProperties = {
+    width: 32,
+    height: 32,
+    display: "grid",
+    placeItems: "center",
+    border: "1px solid #e5e7eb",
+    background: "#fff",
+    borderRadius: 8,
+    cursor: "pointer",
+    fontSize: 16,
+    lineHeight: 1,
+    color: "#374151",
+    boxShadow: "0 1px 2px rgba(0,0,0,0.06)",
+  };
+
   return (
     <div
       ref={containerRef}
@@ -317,11 +441,16 @@ export function MindMap({ store, className, style }: MindMapProps) {
       tabIndex={0}
       role="tree"
       onKeyDown={onKeyDown}
-      onPointerDown={onPointerDown}
+      onPointerDown={onBackgroundPointerDown}
       onPointerMove={onPointerMove}
-      onPointerUp={endPan}
-      onPointerCancel={endPan}
+      onPointerUp={endPointer}
+      onPointerCancel={endPointer}
       onWheel={onWheel}
+      onContextMenu={(e) => {
+        // Right-click on empty canvas: no menu (nodes handle their own).
+        if (!(e.target as HTMLElement).closest("[data-node]"))
+          e.preventDefault();
+      }}
       style={{
         position: "relative",
         overflow: "hidden",
@@ -375,92 +504,240 @@ export function MindMap({ store, className, style }: MindMapProps) {
           if (!n) return null;
           const isSelected = b.id === selected;
           const isRoot = b.side === "root";
+          const isEditing = editing === b.id;
+          const isDragging = drag?.id === b.id;
+          const isDropTarget = drag?.targetId === b.id;
+          const isHovered = hovered === b.id;
           const accent = colorFor(b);
+          const hasKids = n.children.length > 0;
+          const outward = b.side === "left" ? -1 : 1; // +1 = grows right
+          const dragOffX = isDragging && drag ? drag.dx / view.zoom : 0;
+          const dragOffY = isDragging && drag ? drag.dy / view.zoom : 0;
+
           return (
             <div
               key={b.id}
-              data-node={b.id}
-              role="treeitem"
-              aria-selected={isSelected}
-              onPointerDown={(ev) => ev.stopPropagation()}
-              onClick={() => {
-                setSelected(b.id);
-                containerRef.current?.focus();
-              }}
-              onDoubleClick={() => startEdit(b.id)}
               style={{
                 position: "absolute",
                 left: 0,
                 top: 0,
                 width: b.width,
                 height: b.height,
-                transform: `translate(${b.x}px, ${b.y}px)`,
-                transition: "transform 180ms cubic-bezier(0.22, 1, 0.36, 1)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                boxSizing: "border-box",
-                padding: "0 12px",
-                borderRadius: 9,
-                fontFamily: "ui-sans-serif, system-ui, sans-serif",
-                fontSize: 14,
-                fontWeight: isRoot ? 700 : 500,
-                color: isRoot ? "#fff" : "#111827",
-                background: isRoot ? "#111827" : "#fff",
-                border: `2px solid ${isSelected ? accent : isRoot ? "#111827" : "#e5e7eb"}`,
-                boxShadow: isSelected
-                  ? `0 0 0 3px ${accent}33, 0 4px 12px rgba(0,0,0,0.12)`
-                  : "0 1px 3px rgba(0,0,0,0.08)",
-                cursor: "pointer",
-                userSelect: "none",
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
+                transform: `translate(${b.x + dragOffX}px, ${b.y + dragOffY}px)`,
+                transition: isDragging
+                  ? "none"
+                  : "transform 180ms cubic-bezier(0.22, 1, 0.36, 1)",
+                zIndex: isDragging ? 20 : 1,
+                // While dragging, the whole node is transparent to hit-testing so
+                // elementFromPoint can find the drop target beneath the cursor.
+                pointerEvents: isDragging ? "none" : "auto",
               }}
+              onMouseEnter={() => setHovered(b.id)}
+              onMouseLeave={() => setHovered((h) => (h === b.id ? null : h))}
             >
-              {editing === b.id ? (
-                <input
-                  ref={inputRef}
-                  value={editText}
-                  onChange={(ev) => setEditText(ev.target.value)}
-                  onBlur={commitEdit}
+              {/* The visible pill */}
+              <div
+                data-node={b.id}
+                role="treeitem"
+                aria-selected={isSelected}
+                onPointerDown={(ev) => startNodeDrag(ev, b.id)}
+                onDoubleClick={() => startEdit(b.id)}
+                onContextMenu={(ev) => {
+                  ev.preventDefault();
+                  ev.stopPropagation();
+                  const rect = containerRef.current?.getBoundingClientRect();
+                  setSelected(b.id);
+                  setMenu({
+                    id: b.id,
+                    x: ev.clientX - (rect?.left ?? 0),
+                    y: ev.clientY - (rect?.top ?? 0),
+                  });
+                }}
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  boxSizing: "border-box",
+                  padding: "0 12px",
+                  borderRadius: 9,
+                  fontFamily: "ui-sans-serif, system-ui, sans-serif",
+                  fontSize: 14,
+                  fontWeight: isRoot ? 700 : 500,
+                  color: isRoot ? "#fff" : "#111827",
+                  background: isRoot ? "#111827" : "#fff",
+                  border: `2px solid ${isDropTarget ? "#10b981" : isSelected ? accent : isRoot ? "#111827" : "#e5e7eb"}`,
+                  boxShadow: isDropTarget
+                    ? "0 0 0 3px #10b98155, 0 4px 12px rgba(0,0,0,0.15)"
+                    : isSelected
+                      ? `0 0 0 3px ${accent}33, 0 4px 12px rgba(0,0,0,0.12)`
+                      : "0 1px 3px rgba(0,0,0,0.08)",
+                  opacity: isDragging ? 0.65 : 1,
+                  pointerEvents: isDragging ? "none" : "auto",
+                  cursor: "grab",
+                  userSelect: "none",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
+                {isEditing ? (
+                  <input
+                    ref={inputRef}
+                    value={editText}
+                    onChange={(ev) => setEditText(ev.target.value)}
+                    onBlur={commitEdit}
+                    onPointerDown={(ev) => ev.stopPropagation()}
+                    onKeyDown={(ev) => {
+                      if (ev.key === "Enter") {
+                        ev.preventDefault();
+                        const id = editing;
+                        commitEdit();
+                        if (id && id !== map.root.id) addSibling(id);
+                        else addChild(map.root.id);
+                      } else if (ev.key === "Tab") {
+                        ev.preventDefault();
+                        const id = editing;
+                        commitEdit();
+                        if (id) addChild(id);
+                      } else if (ev.key === "Escape") {
+                        ev.preventDefault();
+                        stopEditing();
+                      }
+                    }}
+                    style={{
+                      width: "100%",
+                      border: "none",
+                      outline: "none",
+                      background: "transparent",
+                      textAlign: "center",
+                      font: "inherit",
+                      color: "inherit",
+                    }}
+                  />
+                ) : (
+                  <span
+                    style={{ overflow: "hidden", textOverflow: "ellipsis" }}
+                  >
+                    {n.text || <span style={{ opacity: 0.4 }}>Untitled</span>}
+                  </span>
+                )}
+              </div>
+
+              {/* Collapse / expand toggle (parents only) */}
+              {hasKids && !isEditing && (
+                <button
+                  title={n.collapsed ? "Expand" : "Collapse"}
                   onPointerDown={(ev) => ev.stopPropagation()}
-                  onKeyDown={(ev) => {
-                    if (ev.key === "Enter") {
-                      ev.preventDefault();
-                      const id = editing;
-                      commitEdit();
-                      if (id && id !== map.root.id) addSibling(id);
-                      else addChild(map.root.id);
-                    } else if (ev.key === "Tab") {
-                      ev.preventDefault();
-                      const id = editing;
-                      commitEdit();
-                      if (id) addChild(id);
-                    } else if (ev.key === "Escape") {
-                      ev.preventDefault();
-                      stopEditing();
-                    }
+                  onClick={(ev) => {
+                    ev.stopPropagation();
+                    store.toggleCollapse(b.id);
                   }}
                   style={{
-                    width: "100%",
-                    border: "none",
-                    outline: "none",
-                    background: "transparent",
-                    textAlign: "center",
-                    font: "inherit",
-                    color: "inherit",
+                    position: "absolute",
+                    top: "50%",
+                    left: outward > 0 ? "100%" : undefined,
+                    right: outward < 0 ? "100%" : undefined,
+                    transform: `translate(${outward > 0 ? "-50%" : "50%"}, -50%)`,
+                    width: 18,
+                    height: 18,
+                    borderRadius: "50%",
+                    border: `1.5px solid ${accent}`,
+                    background: "#fff",
+                    color: accent,
+                    fontSize: 11,
+                    fontWeight: 700,
+                    lineHeight: 1,
+                    display: "grid",
+                    placeItems: "center",
+                    cursor: "pointer",
+                    padding: 0,
                   }}
-                />
-              ) : (
-                <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-                  {n.text || <span style={{ opacity: 0.4 }}>Untitled</span>}
-                </span>
+                >
+                  {n.collapsed ? n.children.length : "–"}
+                </button>
+              )}
+
+              {/* Add-child button (on hover / selection) */}
+              {(isHovered || isSelected) && !isEditing && !isDragging && (
+                <button
+                  title="Add child"
+                  onPointerDown={(ev) => ev.stopPropagation()}
+                  onClick={(ev) => {
+                    ev.stopPropagation();
+                    addChild(b.id);
+                  }}
+                  style={{
+                    position: "absolute",
+                    top: "50%",
+                    left: outward > 0 ? "100%" : undefined,
+                    right: outward < 0 ? "100%" : undefined,
+                    transform: `translate(${outward > 0 ? "10px" : "-10px"}, -50%)`,
+                    width: 22,
+                    height: 22,
+                    borderRadius: "50%",
+                    border: "none",
+                    background: accent,
+                    color: "#fff",
+                    fontSize: 15,
+                    fontWeight: 700,
+                    lineHeight: 1,
+                    display: "grid",
+                    placeItems: "center",
+                    cursor: "pointer",
+                    boxShadow: "0 2px 6px rgba(0,0,0,0.2)",
+                    padding: 0,
+                  }}
+                >
+                  +
+                </button>
               )}
             </div>
           );
         })}
       </div>
+
+      {/* Zoom controls */}
+      <div
+        style={{
+          position: "absolute",
+          right: 12,
+          bottom: 12,
+          display: "flex",
+          flexDirection: "column",
+          gap: 6,
+          zIndex: 15,
+        }}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <button title="Zoom in" style={ctrlBtn} onClick={() => zoomBy(1.2)}>
+          +
+        </button>
+        <button
+          title="Zoom out"
+          style={ctrlBtn}
+          onClick={() => zoomBy(1 / 1.2)}
+        >
+          –
+        </button>
+        <button
+          title="Fit to screen"
+          style={{ ...ctrlBtn, fontSize: 13 }}
+          onClick={fitView}
+        >
+          ⤢
+        </button>
+      </div>
+
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={menuItems(menu.id)}
+          onClose={() => setMenu(null)}
+        />
+      )}
     </div>
   );
 }

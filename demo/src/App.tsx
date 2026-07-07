@@ -43,10 +43,12 @@ export function App() {
       </header>
 
       <div className="hint">
-        Click a node, then: <kbd>Tab</kbd> child · <kbd>Enter</kbd> sibling ·{" "}
-        <kbd>F2</kbd> or type to edit · <kbd>Del</kbd> remove · <kbd>Space</kbd>{" "}
-        collapse · <kbd>↑↓←→</kbd> move ·<kbd>⌘Z</kbd> undo · drag to pan ·
-        scroll to zoom
+        <b>Mouse:</b> hover a node for <b>+</b> (add) &amp; collapse toggle ·{" "}
+        <b>right-click</b> for the full menu · <b>drag</b> a node onto another
+        to re-parent · double-click to rename · drag canvas to pan · zoom
+        buttons bottom-right &nbsp;|&nbsp; <b>Keyboard:</b> <kbd>Tab</kbd> child
+        · <kbd>Enter</kbd> sibling · <kbd>F2</kbd> edit · <kbd>Del</kbd> remove
+        · <kbd>Space</kbd> collapse · <kbd>↑↓←→</kbd> move · <kbd>⌘Z</kbd> undo
       </div>
 
       <MindMap store={store} className="canvas" />

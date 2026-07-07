@@ -18,6 +18,13 @@ export interface ContextMenuProps {
   y: number;
   items: MenuItem[];
   onClose: () => void;
+  /** Optional accent-color row shown beneath the items. */
+  swatches?: {
+    colors: string[];
+    current?: string;
+    /** `undefined` clears the color back to the default. */
+    onPick: (color: string | undefined) => void;
+  };
 }
 
 const menuStyle: CSSProperties = {
@@ -33,7 +40,13 @@ const menuStyle: CSSProperties = {
   fontSize: 13,
 };
 
-export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
+export function ContextMenu({
+  x,
+  y,
+  items,
+  onClose,
+  swatches,
+}: ContextMenuProps) {
   const [hovered, setHovered] = useState<number | null>(null);
   return (
     <>
@@ -93,6 +106,73 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
             {item.label}
           </button>
         ))}
+
+        {swatches && (
+          <>
+            <div
+              style={{ height: 1, background: "#f1f1f4", margin: "6px 4px" }}
+            />
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: 7,
+                padding: "6px 10px 4px",
+              }}
+            >
+              {swatches.colors.map((c) => {
+                const active =
+                  swatches.current?.toLowerCase() === c.toLowerCase();
+                return (
+                  <button
+                    key={c}
+                    title={c}
+                    aria-label={`Color ${c}`}
+                    onClick={() => {
+                      swatches.onPick(c);
+                      onClose();
+                    }}
+                    style={{
+                      width: 18,
+                      height: 18,
+                      borderRadius: "50%",
+                      background: c,
+                      padding: 0,
+                      cursor: "pointer",
+                      border: active ? "2px solid #111827" : "2px solid #fff",
+                      boxShadow: "0 0 0 1px #e5e7eb",
+                    }}
+                  />
+                );
+              })}
+              <button
+                title="Reset color"
+                aria-label="Reset color"
+                onClick={() => {
+                  swatches.onPick(undefined);
+                  onClose();
+                }}
+                style={{
+                  width: 18,
+                  height: 18,
+                  borderRadius: "50%",
+                  background: "#fff",
+                  padding: 0,
+                  cursor: "pointer",
+                  border: "1.5px solid #e5e7eb",
+                  color: "#9ca3af",
+                  fontSize: 12,
+                  lineHeight: 1,
+                  display: "grid",
+                  placeItems: "center",
+                }}
+              >
+                ×
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </>
   );

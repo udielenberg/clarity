@@ -18,6 +18,9 @@ export interface MindNode {
   collapsed?: boolean;
   /** Optional longer note attached to the topic. */
   note?: string;
+  /** Optional accent color (any CSS color string). Overrides the default
+   *  depth-based palette for this node. */
+  color?: string;
 }
 
 /** A whole map. Thin wrapper so the shape can grow (themes, meta) without churn. */
@@ -38,7 +41,12 @@ export function createId(): string {
 export function node(
   text: string,
   children: MindNode[] = [],
-  opts: { id?: string; collapsed?: boolean; note?: string } = {},
+  opts: {
+    id?: string;
+    collapsed?: boolean;
+    note?: string;
+    color?: string;
+  } = {},
 ): MindNode {
   return {
     id: opts.id ?? createId(),
@@ -46,6 +54,7 @@ export function node(
     children,
     ...(opts.collapsed ? { collapsed: true } : {}),
     ...(opts.note !== undefined ? { note: opts.note } : {}),
+    ...(opts.color !== undefined ? { color: opts.color } : {}),
   };
 }
 

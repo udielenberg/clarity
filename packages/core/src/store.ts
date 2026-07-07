@@ -81,6 +81,11 @@ export class MindMapStore {
     this.commit(updateNode(this.map.root, id, { note }));
   }
 
+  /** Set a node's accent color; pass `undefined` to clear it back to the default. */
+  setColor(id: string, color: string | undefined): void {
+    this.commit(updateNode(this.map.root, id, { color }));
+  }
+
   /** Remove a subtree. */
   remove(id: string): void {
     this.commit(removeNode(this.map.root, id));

@@ -38,6 +38,7 @@ function validateNode(value: unknown, path: string): MindNode {
   const result: MindNode = { id: obj.id, text: obj.text, children };
   if (typeof obj.collapsed === "boolean") result.collapsed = obj.collapsed;
   if (typeof obj.note === "string") result.note = obj.note;
+  if (typeof obj.color === "string") result.color = obj.color;
   return result;
 }
 

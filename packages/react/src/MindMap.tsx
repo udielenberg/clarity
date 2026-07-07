@@ -6,9 +6,9 @@
  * that transitions, so the map *glides* when the layout changes.
  *
  * Mouse: click selects · double-click edits · hover shows a "+" (add child) and,
- * for parents, a collapse toggle · right-click opens a full action menu · drag a
- * node onto another to re-parent · drag the background to pan · wheel to zoom ·
- * on-canvas buttons for zoom in/out/fit.
+ * for parents, a collapse toggle · right-click ANY node for its action menu
+ * (add · rename · recolor · delete) · drag a node onto another to re-parent ·
+ * drag the background to pan · wheel to zoom · on-canvas buttons for zoom.
  *
  * Keyboard (node selected, not editing): Tab=child · Enter=sibling · F2/type=edit
  * · Delete=remove · ↑↓←→=move selection · Space=collapse · ⌘/Ctrl+Z=undo (+Shift/⌘Y=redo).
@@ -62,6 +62,9 @@ const colorFor = (b: Box): string =>
   b.side === "root"
     ? "#111827"
     : (BRANCH_COLORS[b.depth % BRANCH_COLORS.length] ?? "#6366f1");
+
+/** True for a 6-digit hex color, so an 8-bit alpha suffix is safe to append. */
+const isHex6 = (c: string): boolean => /^#[0-9a-f]{6}$/i.test(c);
 
 const clamp = (v: number, lo: number, hi: number) =>
   Math.max(lo, Math.min(hi, v));
@@ -209,6 +212,12 @@ export function MindMap({ store, className, style }: MindMapProps) {
     [map, store],
   );
 
+  // A node's accent = its explicit color, else the depth-based palette color.
+  const accentFor = useCallback(
+    (box: Box): string => findNode(map.root, box.id)?.color ?? colorFor(box),
+    [map],
+  );
+
   // --- Keyboard ------------------------------------------------------------
   const onKeyDown = useCallback(
     (e: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -287,6 +296,7 @@ export function MindMap({ store, className, style }: MindMapProps) {
   const onBackgroundPointerDown = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
       if ((e.target as HTMLElement).closest("[data-node]")) return; // node handles its own
+      if (e.button !== 0) return; // don't start a pan on right/middle click
       containerRef.current?.focus();
       setSelected(map.root.id);
       setMenu(null);
@@ -304,6 +314,10 @@ export function MindMap({ store, className, style }: MindMapProps) {
   const startNodeDrag = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>, id: string) => {
       e.stopPropagation();
+      // Primary button only. A right/middle click must NOT capture the pointer,
+      // or the follow-up `contextmenu` event gets retargeted off the node and
+      // its menu never opens — the bug where only the root was right-clickable.
+      if (e.button !== 0) return;
       setSelected(id);
       setMenu(null);
       containerRef.current?.focus();
@@ -490,7 +504,7 @@ export function MindMap({ store, className, style }: MindMapProps) {
                   key={`${e.from}->${e.to}`}
                   d={connector(from, to)}
                   fill="none"
-                  stroke={colorFor(to)}
+                  stroke={accentFor(to)}
                   strokeWidth={2}
                   opacity={0.55}
                 />
@@ -508,7 +522,7 @@ export function MindMap({ store, className, style }: MindMapProps) {
           const isDragging = drag?.id === b.id;
           const isDropTarget = drag?.targetId === b.id;
           const isHovered = hovered === b.id;
-          const accent = colorFor(b);
+          const accent = n.color ?? colorFor(b);
           const hasKids = n.children.length > 0;
           const outward = b.side === "left" ? -1 : 1; // +1 = grows right
           const dragOffX = isDragging && drag ? drag.dx / view.zoom : 0;
@@ -566,8 +580,20 @@ export function MindMap({ store, className, style }: MindMapProps) {
                   fontSize: 14,
                   fontWeight: isRoot ? 700 : 500,
                   color: isRoot ? "#fff" : "#111827",
-                  background: isRoot ? "#111827" : "#fff",
-                  border: `2px solid ${isDropTarget ? "#10b981" : isSelected ? accent : isRoot ? "#111827" : "#e5e7eb"}`,
+                  background: isRoot
+                    ? (n.color ?? "#111827")
+                    : n.color && isHex6(n.color)
+                      ? `${n.color}14`
+                      : "#fff",
+                  border: `2px solid ${
+                    isDropTarget
+                      ? "#10b981"
+                      : isSelected
+                        ? accent
+                        : isRoot
+                          ? (n.color ?? "#111827")
+                          : (n.color ?? "#e5e7eb")
+                  }`,
                   boxShadow: isDropTarget
                     ? "0 0 0 3px #10b98155, 0 4px 12px rgba(0,0,0,0.15)"
                     : isSelected
@@ -736,6 +762,11 @@ export function MindMap({ store, className, style }: MindMapProps) {
           y={menu.y}
           items={menuItems(menu.id)}
           onClose={() => setMenu(null)}
+          swatches={{
+            colors: BRANCH_COLORS,
+            current: findNode(map.root, menu.id)?.color,
+            onPick: (c) => store.setColor(menu.id, c),
+          }}
         />
       )}
     </div>

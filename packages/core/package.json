@@ -1,0 +1,31 @@
+{
+  "name": "clarity-mind",
+  "version": "0.0.0",
+  "description": "Headless, framework-agnostic mind-mapping engine: data model, tidy-tree layout, undo/redo, Markdown/JSON I/O.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "keywords": [
+    "mind-map",
+    "mindmap",
+    "brainstorming",
+    "layout",
+    "tree",
+    "headless"
+  ]
+}

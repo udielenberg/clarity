@@ -13,7 +13,7 @@
   <a href="https://www.npmjs.com/package/clarity-mind"><img src="https://img.shields.io/npm/v/clarity-mind?color=6366F1&label=clarity-mind" alt="clarity-mind on npm" /></a>
   <a href="https://www.npmjs.com/package/@clarity-mind/react"><img src="https://img.shields.io/npm/v/%40clarity-mind%2Freact?color=0EA5E9&label=%40clarity-mind%2Freact" alt="@clarity-mind/react on npm" /></a>
   <a href="https://github.com/udielenberg/clarity/actions/workflows/ci.yml"><img src="https://github.com/udielenberg/clarity/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <a href="./LICENSE"><img src="https://img.shields.io/npm/l/clarity-mind?color=64748B" alt="MIT license" /></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-64748B" alt="MIT license" /></a>
 </p>
 
 ---

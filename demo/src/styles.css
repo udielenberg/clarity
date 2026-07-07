@@ -1,0 +1,105 @@
+* {
+  box-sizing: border-box;
+}
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+}
+body {
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    sans-serif;
+  color: #111827;
+}
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid #e5e7eb;
+  background: #fff;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 16px;
+}
+.brand .dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #6366f1, #0ea5e9);
+}
+.brand .tag {
+  font-weight: 500;
+  font-size: 12px;
+  color: #6b7280;
+}
+.actions {
+  display: flex;
+  gap: 8px;
+}
+.actions button {
+  padding: 6px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 13px;
+  cursor: pointer;
+}
+.actions button:hover:not(:disabled) {
+  background: #f3f4f6;
+}
+.actions button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.hint {
+  padding: 8px 16px;
+  font-size: 12px;
+  color: #6b7280;
+  background: #fbfcfe;
+  border-bottom: 1px solid #eef2f7;
+}
+.hint kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  margin: 0 2px;
+  border: 1px solid #d1d5db;
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: #fff;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+}
+.canvas {
+  flex: 1;
+  min-height: 0;
+}
+.markdown {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  max-width: 320px;
+  max-height: 50vh;
+  overflow: auto;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #111827;
+  color: #e5e7eb;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+}

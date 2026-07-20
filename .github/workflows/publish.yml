@@ -14,8 +14,6 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    env:
-      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -28,7 +26,39 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+      - name: Install Infisical CLI
+        run: |
+          VER=0.43.110
+          curl -sSL "https://github.com/Infisical/cli/releases/download/v${VER}/cli_${VER}_linux_amd64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin infisical
+          infisical --version
+
+      # The npm token lives in Infisical (project `clarity`, env `prod`), not in
+      # GitHub. GitHub only holds connector creds: CF_ACCESS_* (to pass the
+      # Cloudflare Access gate in front of vars.aitoolstore.dev) and INFISICAL_*
+      # (the read-only `clarity-ci` machine identity). `infisical run` injects
+      # NPM_TOKEN, which we map to NODE_AUTH_TOKEN for npm.
+      #
       # Core first — the React package depends on it. --provenance stamps the
       # npm page with a verifiable "built from this commit" attestation.
-      - run: npm publish -w packages/core --provenance --access public
-      - run: npm publish -w packages/react --provenance --access public
+      - name: Publish to npm (token from Infisical)
+        env:
+          INFISICAL_API_URL: https://vars.aitoolstore.dev/api
+          INFISICAL_CUSTOM_HEADERS: "CF-Access-Client-Id=${{ secrets.CF_ACCESS_CLIENT_ID }} CF-Access-Client-Secret=${{ secrets.CF_ACCESS_CLIENT_SECRET }}"
+        run: |
+          set -euo pipefail
+          TOKEN=$(infisical login --method=universal-auth \
+            --client-id="${{ secrets.INFISICAL_CLIENT_ID }}" \
+            --client-secret="${{ secrets.INFISICAL_CLIENT_SECRET }}" \
+            --domain="$INFISICAL_API_URL" --plain --silent)
+          echo "::add-mask::$TOKEN"
+          infisical run --projectId=940bab44-4f98-4683-a948-c311036b9247 --env=prod \
+            --domain="$INFISICAL_API_URL" --token="$TOKEN" -- \
+            bash -euo pipefail -c '
+              test -n "${NPM_TOKEN:-}" || { echo "::error::NPM_TOKEN missing from Infisical (clarity/prod)"; exit 1; }
+              echo "::add-mask::$NPM_TOKEN"
+              export NODE_AUTH_TOKEN="$NPM_TOKEN"
+              npm publish -w packages/core --provenance --access public
+              npm publish -w packages/react --provenance --access public
+            '
